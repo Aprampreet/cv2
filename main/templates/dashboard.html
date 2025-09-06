@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+
+{% block title %}Live Posture Dashboard{% endblock %}
+
+{% block content %}
+<div class="w-full max-w-3xl mt-10 px-4 mx-auto">
+    <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">Live Posture Tracker</h1>
+    
+    <div class="bg-white shadow-md rounded-lg p-4 flex flex-col items-center">
+        <img src="{% url 'video_feed' %}" alt="Webcam Feed" class="rounded-lg w-full h-auto mb-4 border border-gray-300">
+
+        <div id="status" class="text-xl font-semibold py-2 px-4 rounded-lg w-full text-center bg-gray-200 text-gray-600">
+            Checking posture...
+        </div>
+    </div>
+</div>
+
+<script>
+async function updateStatus() {
+    try {
+        const res = await fetch("{% url 'posture_status' %}");
+        const data = await res.json();
+        const statusDiv = document.getElementById("status");
+
+        statusDiv.textContent = data.status;
+
+        if (data.status.includes("Good")) {
+            statusDiv.className = "text-xl font-semibold py-2 px-4 rounded-lg w-full text-center bg-green-100 text-green-800";
+        } else if (data.status.includes("Slouch")) {
+            statusDiv.className = "text-xl font-semibold py-2 px-4 rounded-lg w-full text-center bg-red-100 text-red-800";
+        } else {
+            statusDiv.className = "text-xl font-semibold py-2 px-4 rounded-lg w-full text-center bg-gray-200 text-gray-600";
+        }
+    } catch(err) {
+        console.error("Failed to fetch posture status:", err);
+    }
+}
+
+setInterval(updateStatus, 1000);
+</script>
+{% endblock %}
