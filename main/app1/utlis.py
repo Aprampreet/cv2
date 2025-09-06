@@ -2,48 +2,53 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import math
-import simpleaudio as sa
+import winsound
 import time
 from collections import deque
 
+# -------------------------
 # 🔊 Beep sound setup
-wave_obj = sa.WaveObject.from_wave_file("beep.wav")
-last_beep_time = 0
+# -------------------------
+last_slight_beep = 0  # last beep time for slight slouch
+slight_interval = 3    # seconds
 
-def play_beep():
-    """Play beep, but not more than once every 10s."""
-    global last_beep_time
+# For severe slouch continuous beep
+severe_beep_on = False
+
+def play_slight_beep():
+    """Soft beep for slight slouch every 3s."""
+    global last_slight_beep
     now = time.time()
-    if now - last_beep_time >= 10:
-        wave_obj.play()
-        last_beep_time = now
+    if now - last_slight_beep >= slight_interval:
+        winsound.Beep(800, 150)  # softer, short beep
+        print("Slight slouch detected.")
+        last_slight_beep = now
 
+def play_severe_beep():
+    """Continuous beep for severe slouch."""
+    winsound.Beep(1000, 400)  # longer beep
+    print("Severe slouch detected!")
 
+# -------------------------
 # 📌 Mediapipe Pose setup
+# -------------------------
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
 pose = mp_pose.Pose(min_detection_confidence=0.7, min_tracking_confidence=0.7)
 
 cap = cv2.VideoCapture(0)
-
-# Smoothing buffer
 angle_history = deque(maxlen=5)
-
 current_status = "Unknown"
-
 
 # -------------------------
 # 🔹 Helper functions
 # -------------------------
 def calculate_forward_angle(a, b):
-    """Angle between vector a->b and vertical axis."""
     dx = b[0] - a[0]
     dy = b[1] - a[1]
     return abs(math.degrees(math.atan2(dx, dy)))
 
-
 def classify_posture(angle):
-    """Classify posture into categories based on angle."""
     if angle < 20:
         return "Good posture"
     elif angle < 25:
@@ -51,12 +56,11 @@ def classify_posture(angle):
     else:
         return "Severe slouch"
 
-
 # -------------------------
 # 🔹 Main frame capture
 # -------------------------
 def get_frame_and_status():
-    global current_status
+    global current_status, severe_beep_on
 
     if not cap.isOpened():
         return None, "Camera not opened"
@@ -70,19 +74,16 @@ def get_frame_and_status():
     results = pose.process(image)
     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-    neck_forward_angle = None
     if results.pose_landmarks:
         h, w, _ = frame.shape
         lm = results.pose_landmarks.landmark
 
-        # Ear distance check (detect if facing front)
         left_ear = lm[mp_pose.PoseLandmark.LEFT_EAR]
         right_ear = lm[mp_pose.PoseLandmark.RIGHT_EAR]
         left_ear_px = (int(left_ear.x * w), int(left_ear.y * h))
         right_ear_px = (int(right_ear.x * w), int(right_ear.y * h))
         ear_distance = abs(left_ear_px[0] - right_ear_px[0])
 
-        # Collect angles from both ears → shoulders
         pts = []
         for ear_id, shoulder_id in [
             (mp_pose.PoseLandmark.RIGHT_EAR, mp_pose.PoseLandmark.RIGHT_SHOULDER),
@@ -96,36 +97,55 @@ def get_frame_and_status():
                 pts.append((ear_px, shoulder_px, angle))
 
         if pts:
-            # Average angle + smoothing
             neck_forward_angle = np.mean([p[2] for p in pts])
             angle_history.append(neck_forward_angle)
             smoothed_angle = sum(angle_history) / len(angle_history)
 
-            # Classify posture
             current_status = classify_posture(smoothed_angle)
 
-            # 🔔 Trigger beep if severe slouch > 40°
-            if smoothed_angle > 40:
-                play_beep()
+            # 🔔 Trigger beeps based on posture
+            if current_status == "Slight slouch":
+                play_slight_beep()
+                severe_beep_on = False
+            elif current_status == "Severe slouch":
+                play_severe_beep()
+                severe_beep_on = True
+            else:
+                severe_beep_on = False
 
-            # Draw annotations
             for ear_px, shoulder_px, _ in pts:
                 cv2.circle(image, ear_px, 6, (0, 0, 255), -1)
                 cv2.circle(image, shoulder_px, 6, (0, 255, 0), -1)
                 cv2.line(image, ear_px, shoulder_px, (255, 255, 0), 2)
 
             display_text = f"{current_status} ({smoothed_angle:.1f}°)"
-            if ear_distance > 70:  # if user faces camera front
+            if ear_distance > 70:
                 display_text = "Front facing — shift camera sideways"
 
             cv2.putText(image, display_text,
                         (20, 40), cv2.FONT_HERSHEY_SIMPLEX,
                         0.8, (0, 0, 255), 2)
         else:
-            current_status = "⚠️ Not visible"
+            current_status = "Not visible"
 
         mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
     else:
-        current_status = "⚠️ No landmarks"
+        current_status = "No landmarks"
 
     return image, current_status
+
+# -------------------------
+# 🔹 Run live camera
+# -------------------------
+if __name__ == "__main__":
+    while True:
+        frame, status = get_frame_and_status()
+        if frame is None:
+            continue
+
+        cv2.imshow("Posture Corrector", frame)
+        if cv2.waitKey(1) & 0xFF == 27:  # ESC to quit
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
