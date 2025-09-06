@@ -10,17 +10,18 @@ def signup_view(request):
         username = request.POST.get("username")
         password = request.POST.get("password")
         confirm_password = request.POST.get("confirm_password")
+
         if password != confirm_password:
             messages.error(request, "Passwords do not match")
-            return redirect("signup")
+            return redirect("register")
+
         if User.objects.filter(username=username).exists():
             messages.error(request, "Username already taken")
-            return redirect("signup")
+            return redirect("register")
+
         User.objects.create_user(username=username, password=password)
-        user = authenticate(request, username=username, password=password)
-        login(request, user)
         messages.success(request, "Account created successfully! Please login.")
-        return redirect("profile")
+        return redirect("login")
 
     return render(request, "accounts/register.html")
 
@@ -30,15 +31,18 @@ def login_view(request):
         username = request.POST.get("username")
         password = request.POST.get("password")
         user = authenticate(request, username=username, password=password)
+
         if user:
             login(request, user)
             return redirect("profile")
-        messages.warning('Invalid Caridentials')
+        messages.warning(request, "Invalid credentials")
     return render(request, "accounts/login.html")
+
 
 def logout_view(request):
     logout(request)
     return redirect("login")
+
 
 @login_required
 def profile_view(request):
@@ -46,10 +50,11 @@ def profile_view(request):
         bio = request.POST.get("bio")
         phone = request.POST.get("phone")
         profile_pic = request.FILES.get("profile_pic")
-        profile = request.user.profile
+
+        profile = request.user.profile  # requires Profile model
         profile.bio = bio
         profile.phone = phone
-        if profile_pic:  
+        if profile_pic:
             profile.profile_pic = profile_pic
         profile.save()
 
@@ -57,6 +62,3 @@ def profile_view(request):
         return redirect("profile")
 
     return render(request, "accounts/profile.html", {"profile": request.user.profile})
-
-
-
